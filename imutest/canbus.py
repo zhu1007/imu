@@ -527,23 +527,25 @@ class MCP2515():
 		self.WriteByte(CAN_RTS_TXB0)
 
     def Receive(self, CAN_ID):
-		self.WriteBytes(RXB0SIDH, (CAN_ID>>3)&0XFF)
-		self.WriteBytes(RXB0SIDL, (CAN_ID&0x07)<<5)
-		CAN_RX_Buf = []
-		while(1):
-			if(self.ReadByte(CANINTF) & 0x01):
-				len = self.ReadByte(RXB0DLC)
-				print(len)
-				for i in range(0, len): 
-					CAN_RX_Buf.append(hex(self.ReadByte(RXB0D0+i)))
-					# print(self.ReadByte(RXB0D0+i))
-				break
-
-		self.WriteBytes(CANINTF, 0)
-		self.WriteBytes(CANINTE,0x01)#enable
-		self.WriteBytes(RXB0SIDH,0x00)#clean
-		self.WriteBytes(RXB0SIDL,0x60)
-		return CAN_RX_Buf
+        # 配置接收过滤器（仅在需要动态修改ID时保留，否则可移到Init中）
+        self.WriteBytes(RXB0SIDH, (CAN_ID >> 3) & 0XFF)
+        self.WriteBytes(RXB0SIDL, (CAN_ID & 0x07) << 5)
+        
+        CAN_RX_Buf = []
+        # 非阻塞检查：仅当有中断标志时读取数据
+        if self.ReadByte(CANINTF) & 0x01:  # 检查RX0IF标志
+            len_data = self.ReadByte(RXB0DLC)
+            # 限制最大长度为8（CAN数据帧最大8字节）
+            len_data = min(len_data, 8)
+            for i in range(len_data):
+                CAN_RX_Buf.append(hex(self.ReadByte(RXB0D0 + i)))
+            # 清除中断标志（关键：避免重复触发中断）
+            self.WriteBytes(CANINTF, 0x00)  # 清除RX0IF
+            self.WriteBytes(CANINTE, 0x01)  # 重新使能接收中断
+        # 清除接收缓冲区配置（可选，根据需求保留）
+        self.WriteBytes(RXB0SIDH, 0x00)
+        self.WriteBytes(RXB0SIDL, 0x60)
+        return CAN_RX_Buf
 		
 if __name__ == '__main__':
 	print("--------------------------------------------------------")
