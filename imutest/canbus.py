@@ -546,7 +546,46 @@ class MCP2515():
         self.WriteBytes(RXB0SIDH, 0x00)
         self.WriteBytes(RXB0SIDL, 0x60)
         return CAN_RX_Buf
-		
+    
+    def enable_interrupt(self):
+        """使能接收中断（RX0和RX1缓冲区）"""
+        # 配置CANINTE寄存器，使能RX0和RX1中断
+        self.WriteBytes(CANINTE, RX0IE_ENABLED | RX1IE_ENABLED)
+
+    def read_rx0_buffer(self):
+        """读取RXB0接收缓冲区数据"""
+        dlc = self.ReadByte(RXB0DLC) & 0x0F  # 获取数据长度（低4位）
+        data = []
+        for i in range(dlc):
+            data.append(self.ReadByte(RXB0D0 + i))  # 读取数据字节
+        return data
+
+    def read_rx1_buffer(self):
+        """读取RXB1接收缓冲区数据"""
+        dlc = self.ReadByte(RXB1DLC) & 0x0F  # 获取数据长度（低4位）
+        data = []
+        for i in range(dlc):
+            data.append(self.ReadByte(RXB1D0 + i))  # 读取数据字节
+        return data
+
+    def check_and_clear_interrupt(self):
+        """检查中断源并清除中断标志，返回接收到的数据"""
+        intf = self.ReadByte(CANINTF)  # 读取中断标志寄存器
+        data = None
+        
+        if intf & RX0IF_SET:
+            # RXB0缓冲区有数据
+            data = self.read_rx0_buffer()
+            # 清除RX0中断标志
+            self.WriteBytes(CANINTF, intf & ~RX0IF_SET)
+        elif intf & RX1IF_SET:
+            # RXB1缓冲区有数据
+            data = self.read_rx1_buffer()
+            # 清除RX1中断标志
+            self.WriteBytes(CANINTF, intf & ~RX1IF_SET)
+        
+        return data
+    
 if __name__ == '__main__':
 	print("--------------------------------------------------------")
 	can = MCP2515()
