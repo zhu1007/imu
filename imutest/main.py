@@ -2,6 +2,8 @@ import time
 from canbus import MCP2515
 from machine import PWM, Pin
 from udp_send import NetworkUDP
+import _thread  # 用于中断中安全操作缓冲区
+
 # 网络配置
 WIFI_SSID = '5059_2.4G'
 WIFI_PASSWORD = '50595059'
@@ -10,12 +12,12 @@ WIFI_PASSWORD = '50595059'
 PWM_PIN_NUM = 1
 PWM_FREQUENCY = 100
 PWM_DUTY = 32767  # 50%占空比（0-65535）
-pwm_pin = Pin(PWM_PIN_NUM)  # 先初始化引脚，不启动PWM
-pwm = None  # PWM对象将在收到指令后创建
+pwm_pin = Pin(PWM_PIN_NUM)
+pwm = None
 
-# 板载LED（用于指示状态）
+# 板载LED
 led_onboard = Pin("LED", Pin.OUT)
-led_onboard.value(0)  # 初始熄灭
+led_onboard.value(0)
 
 # UDP配置
 UDP_TARGET_IP = '192.168.3.35'
@@ -25,10 +27,35 @@ UDP_LOCAL_PORT = 54321
 # CAN配置
 can = MCP2515()
 can.Init(speed="125KBPS")
+can.enable_interrupt()  # 使能CAN接收中断
 can_id = 0x01
 
+# 中断相关配置
+CAN_INT_PIN = 21  # 假设MCP2515的INT引脚连接到GPIO2
+can_int_pin = Pin(CAN_INT_PIN, Pin.IN, Pin.PULL_UP)  # 上拉输入
+
+# 数据缓冲区（用于中断和主循环之间的数据传递）
+can_data_buffer = []
+buffer_lock = _thread.allocate_lock()  # 缓冲区锁，保证线程安全
+
+
+def can_interrupt_handler(pin):
+    """CAN中断回调函数（中断中尽量简洁）"""
+    global can_data_buffer, buffer_lock
+    # 读取中断数据
+    data = can.check_and_clear_interrupt()
+    if data:
+        # 加锁保护缓冲区操作
+        with buffer_lock:
+            can_data_buffer.append(data)
+
+
+# 配置中断触发（下降沿触发，MCP2515中断通常为低电平有效）
+can_int_pin.irq(trigger=Pin.IRQ_FALLING, handler=can_interrupt_handler)
+
+
 try:
-    # 初始化网络和UDP（包含收发功能）
+    # 初始化网络
     network_udp = NetworkUDP(
         wifi_ssid=WIFI_SSID,
         wifi_password=WIFI_PASSWORD,
@@ -39,40 +66,38 @@ try:
     network_udp.connect_wifi()
 
     print("等待接收 'imustart' 指令...")
-    # 等待启动指令阶段
+    # 等待启动指令
     while True:
-        # 检查是否收到UDP指令
         recv_data = network_udp.recv()
         if recv_data == 'imustart':
-            # 启动PWM
             pwm = PWM(pwm_pin)
             pwm.freq(PWM_FREQUENCY)
             pwm.duty_u16(PWM_DUTY)
-            # 点亮LED表示启动成功
             led_onboard.value(1)
             break
-        time.sleep(0.01)  # 短延时，降低CPU占用
+        time.sleep(0.01)
 
-    # 持续接收CAN数据并通过UDP发送
-    print("开始接收CAN数据...")
+    # 主循环：处理缓冲区数据并通过UDP发送
+    print("开始处理CAN数据...")
     while True:
-        # 接收CAN数据（非阻塞，无数据时返回空列表）
-        can_data = can.Receive(can_id)
-        # 有数据则发送
-        if can_data:
-            data_str = ' '.join(map(str, can_data))
+        # 检查缓冲区是否有数据
+        if can_data_buffer:
+            with buffer_lock:  # 加锁防止中断中修改
+                data = can_data_buffer.pop(0)  # 取出最早的数据
+            # 发送数据
+            data_str = ' '.join(map(str, data))
             network_udp.send(data_str)
             print(f"已发送CAN数据: {data_str}")
-        # 无数据时短暂延时，避免空循环占用过高CPU
         else:
-            time.sleep(0.01)
+            time.sleep(0.01)  # 无数据时短暂休眠
 
 except KeyboardInterrupt:
     print('程序已停止')
 except Exception as e:
     print(f'发生错误: {e}')
 finally:
-    # 清理资源
     if pwm:
-        pwm.deinit()  # 关闭PWM
-    led_onboard.value(0)  # 熄灭LED
+        pwm.deinit()
+    led_onboard.value(0)
+    # 禁用中断
+    can_int_pin.irq(handler=None)
