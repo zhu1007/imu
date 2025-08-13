@@ -55,7 +55,7 @@ class NetworkUDP:
         
         try:
             self.sock.sendto(data.encode(), (self.target_ip, self.target_port))
-            print(f'已发送: {data}')
+            #print(f'已发送: {data}')
         except Exception as e:
             print(f'发送失败: {e}')
 

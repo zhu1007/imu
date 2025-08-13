@@ -9,8 +9,8 @@ WIFI_SSID = '5059_2.4G'
 WIFI_PASSWORD = '50595059'
 
 # PWM配置（初始不启动，等待指令）
-PWM_PIN_NUM = 1
-PWM_FREQUENCY = 100
+PWM_PIN_NUM = 0
+PWM_FREQUENCY = 50
 PWM_DUTY = 32767  # 50%占空比（0-65535）
 pwm_pin = Pin(PWM_PIN_NUM)
 pwm = None
@@ -26,9 +26,9 @@ UDP_LOCAL_PORT = 54321
 
 # CAN配置
 can = MCP2515()
-can.Init(speed="125KBPS")
+can.Init(speed="500KBPS")
 can.enable_interrupt()  # 使能CAN接收中断
-can_id = 0x01
+
 
 # 中断相关配置
 CAN_INT_PIN = 21  # 假设MCP2515的INT引脚连接到GPIO2
@@ -75,7 +75,7 @@ try:
             pwm.duty_u16(PWM_DUTY)
             led_onboard.value(1)
             break
-        time.sleep(0.01)
+        
 
     # 主循环：处理缓冲区数据并通过UDP发送
     print("开始处理CAN数据...")
@@ -84,12 +84,13 @@ try:
         if can_data_buffer:
             with buffer_lock:  # 加锁防止中断中修改
                 data = can_data_buffer.pop(0)  # 取出最早的数据
-            # 发送数据
-            data_str = ' '.join(map(str, data))
+            
+            # 打印CAN ID
+            #print(f"收到CAN消息 - ID: 0x{data['id']:X}, 数据: {data['data']}")
+            
+            # 发送数据（修改为包含ID的格式）
+            data_str = f"ID:0x{data['id']:X} Data:{' '.join(map(str, data['data']))}"
             network_udp.send(data_str)
-            print(f"已发送CAN数据: {data_str}")
-        else:
-            time.sleep(0.01)  # 无数据时短暂休眠
 
 except KeyboardInterrupt:
     print('程序已停止')

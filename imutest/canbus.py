@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from machine import Pin,SPI,PWM
+from machine import Pin, SPI, PWM
 import time
 
 ## Configuration Registers */
@@ -445,16 +445,19 @@ class MCP2515():
 		res = self.spi.read(1)
 		self.cs(1)
 		return int.from_bytes(res,'big')
+    
     def WriteByte(self, addr):
 		self.cs(0)
 		self.spi.write(bytearray([addr]))
 		self.cs(1)
+    
     def WriteBytes(self, addr, data):
 		self.cs(0)
 		self.spi.write(bytearray([CAN_WRITE]))
 		self.spi.write(bytearray([addr]))
 		self.spi.write(bytearray([data]))
 		self.cs(1)
+    
     def Reset(self):
 		self.cs(0)
 		self.spi.write(bytearray([CAN_RESET])) #Reset 0XC0
@@ -465,26 +468,15 @@ class MCP2515():
 		self.Reset()
 		time.sleep(0.1)
 			
-		#set baud rate 125Kbps
-		#<7:6>SJW=00(1TQ)
-		#<5:0>BRP=0x03(TQ=[2*(BRP+1)]/Fsoc=2*4/8M=1us)
-		#<5:0>BRP=0x03 (TQ=[2*(BRP+1)]/Fsoc=2*8/16M=1us)
-		# self.WriteBytes(CNF1, 7)		
-		# self.WriteBytes(CNF2,0x80|PHSEG1_3TQ|PRSEG_1TQ)		
-		# self.WriteBytes(CNF3,PHSEG2_3TQ)
+		#set baud rate
 		self.WriteBytes(CNF1, CAN_RATE[speed][0])
 		self.WriteBytes(CNF2, CAN_RATE[speed][1])
 		self.WriteBytes(CNF3, CAN_RATE[speed][2])		
 
 		#set TXB0,TXB1
-		#<15:5> SID 11bit canid
-		#<BIT3> exide,1:extended 0:standard
 		self.WriteBytes(TXB0SIDH,0xFF)
 		self.WriteBytes(TXB0SIDL,0xE0)
 		self.WriteBytes(TXB0DLC,0x40|DLC_8)
-		# self.WriteBytes(TXB1SIDH,0x50)
-		# self.WriteBytes(TXB1SIDL,0x00)
-		# self.WriteBytes(TXB1DLC,0x40 | DLC_8)    #Set DLC = 3 bytes and RTR bit*/
 
 		#Set RX
 		self.WriteBytes(RXB0SIDH,0x00)
@@ -527,7 +519,7 @@ class MCP2515():
 		self.WriteByte(CAN_RTS_TXB0)
 
     def Receive(self, CAN_ID):
-        # 配置接收过滤器（仅在需要动态修改ID时保留，否则可移到Init中）
+        # 配置接收过滤器
         self.WriteBytes(RXB0SIDH, (CAN_ID >> 3) & 0XFF)
         self.WriteBytes(RXB0SIDL, (CAN_ID & 0x07) << 5)
         
@@ -539,37 +531,76 @@ class MCP2515():
             len_data = min(len_data, 8)
             for i in range(len_data):
                 CAN_RX_Buf.append(hex(self.ReadByte(RXB0D0 + i)))
-            # 清除中断标志（关键：避免重复触发中断）
+            # 清除中断标志
             self.WriteBytes(CANINTF, 0x00)  # 清除RX0IF
             self.WriteBytes(CANINTE, 0x01)  # 重新使能接收中断
-        # 清除接收缓冲区配置（可选，根据需求保留）
+        # 清除接收缓冲区配置
         self.WriteBytes(RXB0SIDH, 0x00)
         self.WriteBytes(RXB0SIDL, 0x60)
         return CAN_RX_Buf
     
     def enable_interrupt(self):
         """使能接收中断（RX0和RX1缓冲区）"""
-        # 配置CANINTE寄存器，使能RX0和RX1中断
         self.WriteBytes(CANINTE, RX0IE_ENABLED | RX1IE_ENABLED)
 
     def read_rx0_buffer(self):
-        """读取RXB0接收缓冲区数据"""
-        dlc = self.ReadByte(RXB0DLC) & 0x0F  # 获取数据长度（低4位）
+        """读取RXB0接收缓冲区数据，返回包含ID和数据的字典"""
+        # 读取ID部分
+        sidh = self.ReadByte(RXB0SIDH)
+        sidl = self.ReadByte(RXB0SIDL)
+        eidh = self.ReadByte(RXB0EID8)
+        eidl = self.ReadByte(RXB0EID0)
+        
+        # 读取数据长度和数据
+        dlc = self.ReadByte(RXB0DLC) & 0x0F  # 只取低4位
         data = []
         for i in range(dlc):
             data.append(self.ReadByte(RXB0D0 + i))  # 读取数据字节
-        return data
+        
+        # 计算标准ID (11位)
+        can_id = (sidh << 3) | ((sidl >> 5) & 0x07)
+        
+        # 检查是否为扩展ID (29位)
+        is_extended = bool(sidl & EXIDE_SET)
+        if is_extended:
+            can_id = (can_id << 18) | (eidh << 10) | eidl
+        
+        return {
+            'id': can_id,
+            'data': data,
+            'is_extended': is_extended
+        }
 
     def read_rx1_buffer(self):
-        """读取RXB1接收缓冲区数据"""
-        dlc = self.ReadByte(RXB1DLC) & 0x0F  # 获取数据长度（低4位）
+        """读取RXB1接收缓冲区数据，返回包含ID和数据的字典"""
+        # 读取ID部分
+        sidh = self.ReadByte(RXB1SIDH)
+        sidl = self.ReadByte(RXB1SIDL)
+        eidh = self.ReadByte(RXB1EID8)
+        eidl = self.ReadByte(RXB1EID0)
+        
+        # 读取数据长度和数据
+        dlc = self.ReadByte(RXB1DLC) & 0x0F  # 只取低4位
         data = []
         for i in range(dlc):
             data.append(self.ReadByte(RXB1D0 + i))  # 读取数据字节
-        return data
+        
+        # 计算标准ID (11位)
+        can_id = (sidh << 3) | ((sidl >> 5) & 0x07)
+        
+        # 检查是否为扩展ID (29位)
+        is_extended = bool(sidl & EXIDE_SET)
+        if is_extended:
+            can_id = (can_id << 18) | (eidh << 10) | eidl
+        
+        return {
+            'id': can_id,
+            'data': data,
+            'is_extended': is_extended
+        }
 
     def check_and_clear_interrupt(self):
-        """检查中断源并清除中断标志，返回接收到的数据"""
+        """检查中断源并清除中断标志，返回包含ID和数据的字典"""
         intf = self.ReadByte(CANINTF)  # 读取中断标志寄存器
         data = None
         
@@ -598,13 +629,9 @@ if __name__ == '__main__':
 	can.Send(id, data, dlc)
 
 	readbuf = []
-	# while(1):
 	while(1):
 		readbuf = can.Receive(id)
 		print(readbuf)
 		time.sleep(0.5)
 
 	print("--------------------------------------------------------")
-
-
-
