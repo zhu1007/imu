@@ -10,7 +10,7 @@ WIFI_PASSWORD = '50595059'
 
 # PWM配置（初始不启动，等待指令）
 PWM_PIN_NUM = 0
-PWM_FREQUENCY = 50
+PWM_FREQUENCY = 20
 PWM_DUTY = 32767  # 50%占空比（0-65535）
 pwm_pin = Pin(PWM_PIN_NUM)
 pwm = None
