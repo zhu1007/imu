@@ -1,5 +1,6 @@
 # Raspberry Pi Pico IMU Data Acquisition Project  
-> 作者：Cheng  xls
+> 作者：Cheng  Xls
+
 > 开发环境：Thonny + MicroPython  
 
 ---------------------------------------------------------------------------------
@@ -27,10 +28,11 @@
 ## 3. 参考链接
 - [Pico-CAN-B 官方 Wiki](https://www.waveshare.net/wiki/Pico-CAN-B)  
 - [Pico 引脚功能（Pinout）](https://pico.nxez.com/pinout/pico/)
-- [IMU端stm32代码] 教研室NAS中 /volume1/机械臂项目/002 软件资料/003 IMU/wym_imu.zip
+- [IMU端stm32代码](https://xlsnas.myds.me:3001/WangYiMeng/wym_imu)
 
 ---------------------------------------------------------------------------------
 
 ## 4. 版本说明
 Version 1.0:实现UDP接受到开始命令后发送PWM波，然后利用CAN总线接收单个ID的消息并发送，未接入IMU
-Version 2.0:实现了利用接收IMU数据并且打包成json上传，但是IMU发送数据的间隔应大于等于2ms。
+
+Version 2.0:实现了利用接收IMU数据并且打包成json上传，但是IMU发送数据的间隔应大于等于2ms，MCP2515双缓冲区存疑
